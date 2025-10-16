@@ -44,7 +44,8 @@ export async function startHttpServer(port: number, mcpServer: McpServer): Promi
   const app = express();
 
   // Parse JSON requests for the Streamable HTTP endpoint only, will break SSE endpoint
-  app.use("/mcp", express.json());
+  // Increase limit to handle large Figma responses (default is 100kb)
+  app.use("/mcp", express.json({ limit: '50mb' }));
 
   // Modern Streamable HTTP endpoint
   app.post("/mcp", async (req, res) => {
@@ -112,12 +113,14 @@ export async function startHttpServer(port: number, mcpServer: McpServer): Promi
     }
 
     Logger.log("Handling StreamableHTTP request");
+    const startTime = Date.now();
     await transport.handleRequest(req, res, req.body);
 
     if (progressInterval) {
       clearInterval(progressInterval);
     }
-    Logger.log("StreamableHTTP request handled");
+    const duration = Date.now() - startTime;
+    Logger.log(`StreamableHTTP request handled in ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
   });
 
   // Handle GET requests for SSE streams (using built-in support from StreamableHTTP)
@@ -176,12 +179,17 @@ export async function startHttpServer(port: number, mcpServer: McpServer): Promi
     }
   });
 
-  httpServer = app.listen(port, "127.0.0.1", () => {
+  httpServer = app.listen(port, "0.0.0.0", () => {
     Logger.log(`HTTP server listening on port ${port}`);
     Logger.log(`SSE endpoint available at http://localhost:${port}/sse`);
     Logger.log(`Message endpoint available at http://localhost:${port}/messages`);
     Logger.log(`StreamableHTTP endpoint available at http://localhost:${port}/mcp`);
   });
+
+  // Set longer timeout for large responses (10 minutes)
+  httpServer.timeout = 600000;
+  httpServer.keepAliveTimeout = 610000;
+  httpServer.headersTimeout = 620000;
 
   process.on("SIGINT", async () => {
     Logger.log("Shutting down server...");

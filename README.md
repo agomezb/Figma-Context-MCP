@@ -91,6 +91,28 @@ The `figma-developer-mcp` server can be configured by adding the following to yo
 
 Or you can set `FIGMA_API_KEY` and `PORT` in the `env` field.
 
+### 🐳 Docker (HTTP Mode)
+
+You can also run the server in Docker for HTTP-based connections. This is useful for:
+- Running the server as a persistent service
+- Deploying to production environments
+- Using with multiple IDEs simultaneously
+
+See **[DOCKER.md](DOCKER.md)** for complete Docker setup instructions, including:
+- Quick start with Docker Compose
+- IDE configuration (Cursor, VS Code, Claude Desktop, Continue)
+
+Quick start:
+```bash
+# 1. Create .env file
+echo "FIGMA_API_KEY=your-token-here" > .env
+
+# 2. Start server
+docker-compose up -d
+
+# 3. Configure your IDE (see DOCKER.md for examples)
+```
+
 If you need more information on how to configure the Framelink MCP for Figma, see the [Framelink docs](https://www.framelink.ai/docs/quickstart?utm_source=github&utm_medium=referral&utm_campaign=readme).
 
 ## Star History

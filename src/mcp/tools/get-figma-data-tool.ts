@@ -88,6 +88,12 @@ async function getFigmaData(
     const formattedResult =
       outputFormat === "json" ? JSON.stringify(result, null, 2) : yaml.dump(result);
 
+    // Log response size for debugging
+    const sizeInBytes = Buffer.byteLength(formattedResult, 'utf8');
+    const sizeInKB = (sizeInBytes / 1024).toFixed(2);
+    const sizeInMB = (sizeInBytes / 1048576).toFixed(2);
+    Logger.log(`Response size: ${sizeInBytes} bytes (${sizeInKB} KB ${sizeInMB > 1 ? `= ${sizeInMB} MB` : ''})`);
+    
     Logger.log("Sending result to client");
     return {
       content: [{ type: "text" as const, text: formattedResult }],

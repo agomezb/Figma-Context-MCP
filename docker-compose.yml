@@ -1,0 +1,24 @@
+services:
+  figma-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: figma-mcp-server
+    ports:
+      - "${PORT:-3333}:3333"
+    environment:
+      - FIGMA_API_KEY=${FIGMA_API_KEY}
+      - FIGMA_OAUTH_TOKEN=${FIGMA_OAUTH_TOKEN:-}
+      - PORT=3333
+      - OUTPUT_FORMAT=${OUTPUT_FORMAT:-yaml}
+      - SKIP_IMAGE_DOWNLOADS=${SKIP_IMAGE_DOWNLOADS:-false}
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "const http = require('http'); http.get('http://localhost:3333/sse', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1));"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
