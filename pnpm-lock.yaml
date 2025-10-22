@@ -12,8 +12,8 @@ importers:
         specifier: ^0.33.0
         version: 0.33.0
       '@modelcontextprotocol/sdk':
-        specifier: ^1.10.2
-        version: 1.10.2
+        specifier: ^1.20.1
+        version: 1.20.1
       '@types/yargs':
         specifier: ^17.0.33
         version: 17.0.33

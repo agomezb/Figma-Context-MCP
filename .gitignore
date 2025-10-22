@@ -38,5 +38,12 @@ test-output
 .DS_Store
 Thumbs.db
 
+# Wireshark / Network Debugging
+wireshark-config/
+wireshark-captures/
+*.pcap
+*.cap
+*.pcapng
+
 # mcp-publisher CLI tool files
 .mcpregistry*

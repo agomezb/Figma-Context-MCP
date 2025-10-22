@@ -1,0 +1,53 @@
+services:
+  figma-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: figma-mcp-server
+    ports:
+      - "${PORT:-3333}:3333"  # MCP Server
+      - "3000:3000"             # Wireshark GUI (shared network)
+    environment:
+      - FIGMA_API_KEY=${FIGMA_API_KEY}
+      - FIGMA_OAUTH_TOKEN=${FIGMA_OAUTH_TOKEN:-}
+      - PORT=3333
+      - OUTPUT_FORMAT=${OUTPUT_FORMAT:-json}
+      - SKIP_IMAGE_DOWNLOADS=${SKIP_IMAGE_DOWNLOADS:-false}
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - figma-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "const http = require('http'); http.get('http://localhost:3333/sse', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1));"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Wireshark como servicio separado
+  # Fuente: https://hub.docker.com/r/linuxserver/wireshark
+  # network_mode: service para compartir el network namespace del MCP server
+  # Esto permite a Wireshark ver TODO el tráfico del MCP server
+  wireshark:
+    image: lscr.io/linuxserver/wireshark:latest
+    container_name: wireshark
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    network_mode: "service:figma-mcp-server"
+    depends_on:
+      - figma-mcp-server
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Los_Angeles
+    volumes:
+      - ./wireshark-config:/config
+      - ./wireshark-captures:/captures
+    restart: unless-stopped
+
+networks:
+  figma-network:
+    driver: bridge
+

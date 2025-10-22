@@ -16,6 +16,12 @@ const transports = {
   sse: {} as Record<string, SSEServerTransport>,
 };
 
+// Store MCP server instances per session
+const mcpServers = {
+  streamable: {} as Record<string, McpServer>,
+  sse: {} as Record<string, McpServer>,
+};
+
 /**
  * Start the MCP server in either stdio or HTTP mode.
  */
@@ -45,7 +51,7 @@ export async function startHttpServer(port: number, mcpServer: McpServer): Promi
 
   // Parse JSON requests for the Streamable HTTP endpoint only, will break SSE endpoint
   // Increase limit to handle large Figma responses (default is 100kb)
-  app.use("/mcp", express.json({ limit: '50mb' }));
+  app.use("/mcp", express.json({ limit: '100mb' }));
 
   // Modern Streamable HTTP endpoint
   app.post("/mcp", async (req, res) => {
@@ -62,21 +68,34 @@ export async function startHttpServer(port: number, mcpServer: McpServer): Promi
       Logger.log("Reusing existing StreamableHTTP transport for sessionId", sessionId);
       transport = transports.streamable[sessionId];
     } else if (!sessionId && isInitializeRequest(req.body)) {
-      Logger.log("New initialization request for StreamableHTTP sessionId", sessionId);
+      Logger.log("New initialization request for StreamableHTTP");
+      
+      // Get server config to create a new MCP server instance for this session
+      const config = getServerConfig(false);
+      const sessionMcpServer = createServer(config.auth, {
+        isHTTP: true,
+        outputFormat: config.outputFormat,
+        skipImageDownloads: config.skipImageDownloads,
+      });
+      
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (sessionId) => {
-          // Store the transport by session ID
-          transports.streamable[sessionId] = transport;
+        onsessioninitialized: (newSessionId) => {
+          // Store the transport and server by session ID
+          transports.streamable[newSessionId] = transport;
+          mcpServers.streamable[newSessionId] = sessionMcpServer;
+          Logger.log(`New StreamableHTTP session created: ${newSessionId}`);
         },
       });
       transport.onclose = () => {
         if (transport.sessionId) {
+          Logger.log(`Closing StreamableHTTP session: ${transport.sessionId}`);
           delete transports.streamable[transport.sessionId];
+          delete mcpServers.streamable[transport.sessionId];
         }
       };
-      // TODO? There semes to be an issue—at least in Cursor—where after a connection is made to an HTTP Streamable endpoint, SSE connections to the same Express server fail with "Received a response for an unknown message ID"
-      await mcpServer.connect(transport);
+      // Connect the new server instance to this transport
+      await sessionMcpServer.connect(transport);
     } else {
       // Invalid request
       Logger.log("Invalid request:", req.body);
@@ -91,36 +110,26 @@ export async function startHttpServer(port: number, mcpServer: McpServer): Promi
       return;
     }
 
-    let progressInterval: NodeJS.Timeout | null = null;
-    const progressToken = req.body.params?._meta?.progressToken;
-    // Logger.log("Progress token:", progressToken);
-    let progress = 0;
-    if (progressToken) {
-      Logger.log(
-        `Setting up progress notifications for token ${progressToken} on session ${sessionId}`,
-      );
-      progressInterval = setInterval(async () => {
-        Logger.log("Sending progress notification", progress);
-        await mcpServer.server.notification({
-          method: "notifications/progress",
-          params: {
-            progress,
-            progressToken,
-          },
-        });
-        progress++;
-      }, 1000);
-    }
-
     Logger.log("Handling StreamableHTTP request");
     const startTime = Date.now();
-    await transport.handleRequest(req, res, req.body);
-
-    if (progressInterval) {
-      clearInterval(progressInterval);
+    
+    try {
+      await transport.handleRequest(req, res, req.body);
+      const duration = Date.now() - startTime;
+      Logger.log(`StreamableHTTP request handled in ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
+    } catch (error) {
+      Logger.log("Error in handleRequest:", error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: "2.0",
+          error: {
+            code: -32603,
+            message: `Internal error: ${error instanceof Error ? error.message : String(error)}`,
+          },
+          id: null,
+        });
+      }
     }
-    const duration = Date.now() - startTime;
-    Logger.log(`StreamableHTTP request handled in ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
   });
 
   // Handle GET requests for SSE streams (using built-in support from StreamableHTTP)
@@ -152,17 +161,29 @@ export async function startHttpServer(port: number, mcpServer: McpServer): Promi
 
   app.get("/sse", async (req, res) => {
     Logger.log("Establishing new SSE connection");
+    
+    // Create a new MCP server instance for this SSE session
+    const config = getServerConfig(false);
+    const sessionMcpServer = createServer(config.auth, {
+      isHTTP: true,
+      outputFormat: config.outputFormat,
+      skipImageDownloads: config.skipImageDownloads,
+    });
+    
     const transport = new SSEServerTransport("/messages", res);
     Logger.log(`New SSE connection established for sessionId ${transport.sessionId}`);
     Logger.log("/sse request headers:", req.headers);
     Logger.log("/sse request body:", req.body);
 
     transports.sse[transport.sessionId] = transport;
+    mcpServers.sse[transport.sessionId] = sessionMcpServer;
     res.on("close", () => {
+      Logger.log(`Closing SSE session: ${transport.sessionId}`);
       delete transports.sse[transport.sessionId];
+      delete mcpServers.sse[transport.sessionId];
     });
 
-    await mcpServer.connect(transport);
+    await sessionMcpServer.connect(transport);
   });
 
   app.post("/messages", async (req, res) => {
